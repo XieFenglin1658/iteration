@@ -1,0 +1,338 @@
+---
+title: "iteration_and_listcols"
+author: "Fenglin Xie"
+date: "2025-10-30"
+output: github_document
+---
+需要多次使用同一段codes - iteration
+output object + sequence to iterate over + the loop body + input object -- for loop
+
+使用purrr::map()来进行loop,和 for loop效果一样(purrr是tidyverse的package)，不要使用lapply()
+
+list()可以用来生成不同类型变量的组合，chr、numeric、matrices、summaries...
+data_frame()需要保证each list entry is a vector with the same length,可以有多个不同类型的变量组合到一起，print as a table.
+
+list可以以column的形式作为dataframe的一部分（只要length一样）---这代表着，input和output可以一起被save到同一个dataframe当中（keep track of the result）
+
+```{r}
+library(tidyverse)
+library(rvest)
+```
+
+##Making a list
+
+```{r}
+l =
+  list(
+    vec_numeric = 1:23,
+    char_vec = c("Lin"),
+    mat = matrix(1:8, nrow = 2, ncol = 4),
+    summary = summary(rnorm(1000, mean = 4))
+  )
+
+l
+
+##召唤某一个variable
+##三种方式--序号/name/$
+
+l[[1]]
+l[["vec_numeric"]]
+l$vec_numeric
+
+```
+
+
+##Make a different list
+
+```{r}
+list_normals =
+  list(
+    a = rnorm(30, mean = 3, sd = 1),
+    b = rnorm(30, mean = 30, sd = 1),
+    c = rnorm(30, mean = 3, sd = 10),
+    d = rnorm(30, mean = -3, sd = 4)
+  )
+
+```
+
+
+## Let's copy and paste the function from last time
+
+```{r}
+mean_and_sd = function(x) {
+  
+  if(!is.numeric(x)) {
+    stop("This input x should be numeric")
+  }
+  
+  if(length(x) < 5) {
+    stop("Only compute z scores when the input has 5 or more numbers")
+  }
+  
+  mean_x = mean(x, na.rm = TRUE)
+  sd_x = sd(x, na.rm = TRUE)
+  
+  tibble(
+    mean = mean_x, 
+    sd = sd_x)
+}
+  
+```
+
+```{r}
+mean_and_sd(list_normals[[1]])
+mean_and_sd(list_normals[[2]])
+mean_and_sd(list_normals[[3]])
+mean_and_sd(list_normals[[4]])
+
+```
+
+做的工作都是重复性质的--use a loop to iterate
+##i的值是从1到4（1:4），每个i都跑一遍这个代码`mean_and_sd(list_normals[[i]])`,然后储存下来作为这个variable i的output，一共有四个output
+
+##先创建一个empty list，用来储存output
+
+```{r}
+
+##define an empty list -- type(list) + 所需（list）长度
+output = vector("list", length = 4)
+
+for (i in 1:4) {
+  
+  output[[i]] = mean_and_sd(list_normals[[i]])
+  
+}
+
+output
+```
+
+
+Use 'map' to do the same thing
+##map(input + function)--map就是把input依次按照function进行处理，分别得出结果，不需要define length. save it in a variable(output)
+
+```{r}
+output = map(list_normals, mean_and_sd)
+
+output = map(list_normals, median)
+```
+
+
+Check out some `map` variants
+
+```{r}
+##把结果以dataframe的形式展示出来
+
+map_dfr(list_normals, mean_and_sd)
+
+##给input命名
+map_dfr(list_normals, mean_and_sd, .id = "sample")
+
+##如果你知道你的结果是single number，使用map_dbl,这样出来的结果就不是list of number，就是直接给你对应的几个数字
+map_dbl(list_normals, median)
+
+```
+
+
+## LIST COLUMNS
+
+try to put my list into a dataframe
+
+##name和sample的length一样所以才可以匹配，name中是四个数据，sample中也是四个数据
+
+```{r}
+listcol_df =
+  tibble(
+    name = c("a", "b", "c", "d"),
+    sample = list_normals
+  )
+```
+
+Did this really work?
+
+```{r}
+pull(listcol_df, name)
+pull(listcol_df, sample)
+```
+
+can I apply `mean_and_sd`?
+
+```{r}
+mean_and_sd(pull(listcol_df, sample)[[1]])
+mean_and_sd(pull(listcol_df, sample)[[2]])
+mean_and_sd(pull(listcol_df, sample)[[3]])
+mean_and_sd(pull(listcol_df, sample)[[4]])
+
+```
+
+iterate using `map`
+##`pull(listcol_df, sample)`--accessing the input--sample数据
+```{r}
+map(pull(listcol_df, sample), mean_and_sd)
+```
+
+我希望我的结果最后也是以dataframe的形式呈现的（方便我进行下一步分析）
+
+adding a column(加一个outcome column)
+
+```{r}
+listcol_df = 
+  listcol_df |> 
+  mutate(
+    summary = map(sample, mean_and_sd)
+  )
+
+pull(listcol_df, summary)
+```
+
+##unnest-把一个数据以更好的形式展现出来（后面会讲）
+##去掉sample是因为我后续不再需要他，并且他这列数据看着有点奇怪
+
+```{r}
+listcol_df |> 
+  select(-sample) |> 
+  unnest(summary)
+```
+
+
+## Revisit NSDUH
+
+```{r}
+nsduh_url = "http://samhda.s3-us-gov-west-1.amazonaws.com/s3fs-public/field-uploads/2k15StateFiles/NSDUHsaeShortTermCHG2015.htm"
+
+nsduh_html = read_html(nsduh_url)
+
+nsduh_import = function(html, table_num) {
+  
+  data = 
+    html |> 
+    html_table() |> 
+    nth(table_num) |>
+    slice(-1) |> 
+    select(-contains("P Value")) |>
+    pivot_longer(
+      -State,
+      names_to = "age_year", 
+      values_to = "percent") |>
+    separate(age_year, into = c("age", "year"), sep = "\\(") |>
+    mutate(
+      year = str_replace(year, "\\)", ""),
+      percent = str_replace(percent, "[a-c]$", ""),
+      percent = as.numeric(percent)) |>
+    filter(!(State %in% c("Total U.S.", "Northeast", "Midwest", "South", "West")))
+
+}
+
+data_marj_year = nsduh_import(nsduh_html, table_num = 1)
+data_marj_month = nsduh_import(nsduh_html, table_num = 2)
+```
+
+
+Try this with a `for` loop
+
+```{r}
+output = vector("list", length = 3)
+
+for (i in 1:3) {
+  
+  output[[i]] = nsduh_import(html = nsduh_html, i)
+  
+}
+```
+
+Do this with `map`
+##`nsduh_import`这个function需要注明的argument有两个，所以这里额外多了一个信息需要写明
+
+```{r}
+map(1:3, nsduh_import, html = nsduh_html)
+```
+
+Do this all in a dataframe(更tidy)
+##加一个outcome column，并且用`unnest`展开这个table
+
+```{r}
+nsduh_df =
+  tibble(
+    name = c("marj year", "marj month", "marj first"),
+    number = 1:3
+  ) |> 
+  mutate(
+    table = map(number, nsduh_import, html = nsduh_html)
+  ) |> 
+  unnest(table)
+```
+
+
+## Look at weather data
+
+```{r}
+library(p8105.datasets)
+data("weather_df")
+```
+
+```{r}
+weather_df |> 
+  filter(name == "CentralPark_NY") |> 
+  ggplot(aes(x = tmin, y = tmax)) +
+  geom_point() +
+  geom_smooth(method = "lm")
+```
+
+
+Let's do a regression
+
+##有时候这个function可能not expect 一个dataframe 作为data进入，这个时候需要指明这个data放在哪里，也就是使用这个code--`data = _`即可
+```{r}
+weather_df |> 
+  filter(name == "CentralPark_NY") |>
+  lm(tmax ~ tmin, data = _)
+
+weather_df |> 
+  filter(name == "Molokai_HI") |>
+  lm(tmax ~ tmin, data = _)
+
+weather_df |> 
+  filter(name == "Waterhole_WA") |>
+  lm(tmax ~ tmin, data = _)
+```
+
+一直在做重复工作，如果有一百个地址，还这么一个一个code的话会非常麻烦！！
+
+Let's iterate differently
+##nest--把从date到tmin的那几列都聚合到一个column中，和unnest功能相反
+```{r}
+weather_nest =
+  weather_df |> 
+  nest(data = date:tmin)
+
+```
+
+```{r}
+lm(tmax ~ tmin, data = pull(weather_nest, data)[[1]])
+lm(tmax ~ tmin, data = pull(weather_nest, data)[[2]])
+lm(tmax ~ tmin, data = pull(weather_nest, data)[[3]])
+```
+
+Do this using `map`
+
+```{r}
+weather_lm = function(df) {
+  
+  lm(tmax ~ tmin, data = df)
+  
+}
+```
+
+```{r}
+map(pull(weather_nest, data), weather_lm)
+```
+
+依旧dataframe--keep track of everything in one place
+
+```{r}
+weather_nest |> 
+  mutate(
+    lm_fits = map(data, weather_lm)
+  )
+```
+
+
