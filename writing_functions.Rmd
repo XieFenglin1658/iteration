@@ -200,15 +200,15 @@ sim_mean_sd = function(n_subj = 30, mu = 3, sigma = 2) {
   
   sim_df = 
     tibble(
-    x = rnorm(n = n_subj, mean = mu, sd = sigma)
-  )
-
+      x = rnorm(n = n_subj, mean = mu, sd = sigma)
+    )
+  
   sim_df |> 
     summarize(
       mu_hat = mean(x),
       sigma_hat = sd(x)
-  )
-
+    )
+  
 }
 ```
 
@@ -244,6 +244,11 @@ sim_mean_sd(n_subj = 3000, 3)
 sim_mean_sd(mu = 484, 5000)
 ```
 
+##刚刚写好了documentation，可以直接用自己写好的，不用写代码,相当于这是一个可以直接用的function,不需要我们自己去定义了
+
+```{r}
+source("source/sim_mean_sd.R")
+```
 
 Import the LoTR data
 
